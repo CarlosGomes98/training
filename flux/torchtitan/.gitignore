@@ -11,12 +11,17 @@ dist/*
 data
 out
 wandb
+*.tar
 
 torchtitan/datasets/**/*.model
 assets/**/*.model
-torchtitan/experiments/**/assets/*
+torchtitan/experiments/flux/assets/*
 
 # temp files
 *.log
 error.json
 _remote_module_non_scriptable.py
+.venv/
+
+# devcontainer
+.devcontainer

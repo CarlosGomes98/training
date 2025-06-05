@@ -13,7 +13,12 @@ set -ex
 NGPU=${NGPU:-"8"}
 export LOG_RANK=${LOG_RANK:-0}
 CONFIG_FILE=${CONFIG_FILE:-"./torchtitan/experiments/flux/train_configs/debug_model.toml"}
-
+DEBUG=${DEBUG:-0}
+if [ $DEBUG == 1 ]; then
+    DEBUG_FLAG="-m debugpy --listen 0.0.0.0:5678 --wait-for-client"
+else
+    DEBUG_FLAG=""
+fi
 overrides=""
 if [ $# -ne 0 ]; then
     overrides="$*"
@@ -21,6 +26,7 @@ fi
 
 
 PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" \
-torchrun --nproc_per_node=${NGPU} --rdzv_backend c10d --rdzv_endpoint="localhost:0" \
+torchrun --nproc_per_node=${NGPU} --rdzv_backend c10d --rdzv_endpoint="127.0.0.1:29500" \
 --local-ranks-filter ${LOG_RANK} --role rank --tee 3 \
+${DEBUG_FLAG} \
 -m torchtitan.experiments.flux.train --job.config_file ${CONFIG_FILE} $overrides

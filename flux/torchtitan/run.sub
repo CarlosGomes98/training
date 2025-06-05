@@ -1,0 +1,110 @@
+#!/bin/bash
+#SBATCH -A <account> #account
+#SBATCH -p batch         #partition
+#SBATCH -t 04:00:00    #wall time limit, hr:min:sec
+#SBATCH -N4            #number of nodes
+#SBATCH --gres=gpu:8
+#SBATCH --exclusive
+#SBATCH -J _mlperf_training:flux #job name
+
+set -ex
+
+export SBATCH_NETWORK=sharp
+export SLURM_MPI_TYPE=pmi2
+export NCCL_IB_SL=1
+export ENABLE_IB_BINDING=1
+
+NGPU=${NGPU:-"8"}
+export LOG_RANK=${LOG_RANK:-0}
+CONFIG_FILE=${CONFIG_FILE:-"./torchtitan/experiments/flux/train_configs/flux_schnell_model.toml"}
+ENABLE_TB=${ENABLE_TB:-True}
+if [[ ${ENABLE_TB} = True ]]; then
+    TB_FLAG="--metrics.enable_tensorboard"
+else
+    TB_FLAG=""
+fi
+
+MOUNT_CURRENT_DIR=${MOUNT_CURRENT_DIR:-False}
+if [[ ${MOUNT_CURRENT_DIR} = True ]]; then
+    MOUNT_CURRENT_DIR_FLAG=".:/workspace/flux,"
+else
+    MOUNT_CURRENT_DIR_FLAG=""
+fi
+
+ENABLE_CHECKPOINTING=${ENABLE_CHECKPOINTING:-True}
+if [[ ${ENABLE_CHECKPOINTING} = True ]]; then
+    CKPT_FLAG="--checkpoint.enable_checkpoint --checkpoint.folder=checkpoint --checkpoint.interval=${CHECKPOINT_FREQ:-100} --checkpoint.export_dtype=bfloat16"
+else
+    CKPT_FLAG=""
+fi
+
+DATASET=${DATASET:-laion_pre_transformed}
+VAL_DATASET=${VAL_DATASET:-coco_pre_transformed}
+
+# defaults for some common datasets
+if [[ ${DATASET} == "laion_pre_transformed" ]]; then
+    DATASET_PATH=${DATASET_PATH:-"laion-400m/hf_dataset"}
+elif [[ ${DATASET} == "cc12m-wds-disk" ]]; then
+    DATASET_PATH=${DATASET_PATH:-"cc12m-wds-disk"}
+else
+    DATASET_PATH=""
+fi
+
+if [[ ${VAL_DATASET} == "coco_pre_transformed" ]]; then
+    VAL_DATASET_PATH=${VAL_DATASET_PATH:-"coco2014/hf_dataset"}
+else
+    VAL_DATASET_PATH=""
+fi
+
+mkdir -p ${LOGDIR}
+overrides=""
+if [ $# -ne 0 ]; then
+    overrides="$*"
+fi
+
+
+mapfile -t nodes < <(scontrol show hostnames "$SLURM_JOB_NODELIST")
+# Echo the node list
+echo "Node list:"
+for node in "${nodes[@]}"; do
+    echo "  - $node"
+done
+echo "Total nodes: ${#nodes[@]}"
+
+head_node=${nodes[0]}
+head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
+
+echo Node IP: $head_node_ip
+export LOGLEVEL=INFO
+# Ensure that P2P is available
+# export NCCL_P2P_DISABLE=1
+# export NCCL_IB_DISABLE=1
+
+# debugging flags (optional)
+export NCCL_DEBUG=WARN
+export PYTHONFAULTHANDLER=1
+# optional debug settings
+# export NCCL_DEBUG=INFO
+# NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV
+
+export CUDA_LAUNCH_BLOCKING=0
+
+# on your cluster you might need these:
+# set the network interface
+#export NCCL_SOCKET_IFNAME="eth0,en,eth,em,bond"
+export NCCL_BUFFSIZE=2097152
+#export TORCH_DIST_INIT_BARRIER=1
+#export FI_EFA_SET_CUDA_SYNC_MEMOPS=0
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+
+# adjust sbatch --ntasks and sbatch --nodes above and --nnodes below
+# to your specific node count, and update target launch file.
+srun --ntasks-per-node=1 --output=${LOGDIR}/slurm-%j.out --container-image=${CONT} \
+--container-mounts="${MOUNT_CURRENT_DIR_FLAG}./torchtitan/experiments/flux/assets/autoencoder:/autoencoder,${DATAROOT}:/dataset,${LOGDIR}:/logdir,./hf_cache:/root/.cache" \
+torchrun --nnodes ${#nodes[@]} --nproc_per_node ${NGPU} --rdzv_id 101 --rdzv_backend c10d --rdzv_endpoint "$head_node_ip:29500" --local-ranks-filter ${LOG_RANK} \
+--role rank --tee 3 -m torchtitan.experiments.flux.train --job.config_file ${CONFIG_FILE} ${TB_FLAG} ${CKPT_FLAG} --job.dump_folder=/logdir \
+--parallelism.data_parallel_replicate_degree=${#nodes[@]} --parallelism.data_parallel_shard_degree=${NGPU} \
+--training.dataset=${DATASET} --training.dataset_path=/dataset/${DATASET_PATH} --eval.dataset=${VAL_DATASET} --eval.dataset_path=/dataset/${VAL_DATASET_PATH} \
+--encoder.autoencoder_path=/autoencoder/ae.safetensors \
+--training.batch_size=32 --eval.batch_size=32 --eval.eval_freq=100 --eval.save_img_folder="img"  --metrics.log_freq=10 \
+$overrides

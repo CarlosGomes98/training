@@ -32,10 +32,9 @@ class TransformerModelArgs(BaseModelArgs):
     # If `True`, then each transformer block init uses its layer ID, and if
     # `False`, each uses the total number of transformer blocks
     depth_init: bool = True
-    norm_type: str = "rmsnorm"
 
-    use_flex_attn: bool = True
-    attn_mask_type: str = "block_causal"
+    use_flex_attn: bool = False
+    attn_mask_type: str = "causal"
     eos_id: int = 0
     # iRoPE settings
     # When ``every_n_layers_nope`` is specified, NoPE (no positional embedding) is
@@ -57,17 +56,30 @@ class TransformerModelArgs(BaseModelArgs):
     # token-choice
     top_k: int = 1
     use_grouped_mm: bool = True  # grouped mm or for-loop for the experts computation
+    load_balance_coeff: float | None = 1e-3
 
     def update_from_config(self, job_config: JobConfig, tokenizer: Tokenizer) -> None:
-        self.norm_type = job_config.model.norm_type
         self.vocab_size = tokenizer.n_words
         self.max_seq_len = job_config.training.seq_len
-        self.use_flex_attn = job_config.model.use_flex_attn
+        self.eos_id = tokenizer.eos_id
+
         if self.use_grouped_mm and not has_cuda_capability(9, 0):
             logger.warning(
                 "Failed to use grouped mm, which is only supported on SM90 or later",
             )
             self.use_grouped_mm = False
+
+        if job_config.activation_checkpoint.mode == "selective" and self.use_flex_attn:
+            raise ValueError(
+                "FlexAttention is not compatible with selective AC yet. "
+                "See https://github.com/pytorch/pytorch/issues/147879"
+            )
+
+        if job_config.parallelism.context_parallel_degree > 1 and self.use_flex_attn:
+            raise ValueError(
+                "FlexAttention is not compatible with CP yet. "
+                "We are still working on this."
+            )
 
     def get_nparams_and_flops(
         self, model: nn.Module, seq_len: int

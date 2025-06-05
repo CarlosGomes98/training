@@ -10,7 +10,6 @@ import torch.nn.functional as F
 from torch import nn
 
 from torchtitan.models.attention import build_attention, init_attention_mask
-from torchtitan.models.norms import build_norm
 from torchtitan.protocols.train_spec import ModelProtocol
 
 from .args import TransformerModelArgs
@@ -311,20 +310,13 @@ class TransformerBlock(nn.Module):
                 ffn_dim_multiplier=model_args.ffn_dim_multiplier,
             )
 
-        self.layer_id = layer_id
-        self.num_layers = model_args.n_layers
-
-        self.attention_norm = build_norm(
-            model_args.norm_type, dim=model_args.dim, eps=model_args.norm_eps
-        )
-        self.ffn_norm = build_norm(
-            model_args.norm_type, dim=model_args.dim, eps=model_args.norm_eps
-        )
+        self.attention_norm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
+        self.ffn_norm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
 
         if model_args.depth_init:
-            self.weight_init_std = 0.02 / (2 * (self.layer_id + 1)) ** 0.5
+            self.weight_init_std = 0.02 / (2 * (layer_id + 1)) ** 0.5
         else:
-            self.weight_init_std = 0.02 / (2 * self.num_layers) ** 0.5
+            self.weight_init_std = 0.02 / (2 * model_args.n_layers) ** 0.5
 
     def forward(
         self,
@@ -349,12 +341,12 @@ class TransformerBlock(nn.Module):
             out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
-    def init_weights(self):
+    def init_weights(self, buffer_device: torch.device):
         for norm in (self.attention_norm, self.ffn_norm):
             norm.reset_parameters()
         self.attention.init_weights(self.weight_init_std)
         if self.moe_enabled:
-            self.moe.init_weights(self.weight_init_std)
+            self.moe.init_weights(self.weight_init_std, buffer_device)
         else:
             self.feed_forward.init_weights(self.weight_init_std)
 
@@ -399,11 +391,7 @@ class Transformer(nn.Module, ModelProtocol):
         self.layers = torch.nn.ModuleDict()
         for layer_id in range(model_args.n_layers):
             self.layers[str(layer_id)] = TransformerBlock(layer_id, model_args)
-
-        self.norm = build_norm(
-            model_args.norm_type, dim=model_args.dim, eps=model_args.norm_eps
-        )
-
+        self.norm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
         self.output = nn.Linear(model_args.dim, model_args.vocab_size, bias=False)
         self.init_weights()
 
@@ -429,7 +417,7 @@ class Transformer(nn.Module, ModelProtocol):
             nn.init.normal_(self.tok_embeddings.weight)
         for layer in self.layers.values():
             if layer is not None:
-                layer.init_weights()
+                layer.init_weights(buffer_device=buffer_device)
         if self.norm is not None:
             self.norm.reset_parameters()
         final_out_std = self.model_args.dim**-0.5
@@ -453,21 +441,28 @@ class Transformer(nn.Module, ModelProtocol):
             self.model_args.rope_theta,
         )
 
-    def forward(self, tokens: torch.Tensor):
+    def forward(self, tokens: torch.Tensor, input_batch: torch.Tensor | None = None):
         """
         Perform a forward pass through the Transformer model.
 
         Args:
-            tokens (torch.Tensor): Input token indices.
+            tokens (torch.Tensor): Input token indices if pipeline parallelism is not enabled.
+                If pipeline parallelism is enabled, this will be the input token indices
+                for the ranks on the first pipeline stage. This will be the activation of the
+                previous pipeline stage if the current rank is not on the first stage.
+            input_batch (torch.Tensor): The input batch read from the dataloader.
+                This will always be the input batch regardless of the pipeline stage.
+                This field is required for non-first PP stages to perform document
+                masking attention (to analyze the boundary of the document).
 
         Returns:
             torch.Tensor: Output logits after applying the Transformer model.
 
         """
-        # TODO: We will to change forward() signature to allow tokens to
-        # be always passed in.
         if self.model_args.use_flex_attn:
-            init_attention_mask(tokens, eos_id=self.eos_id)
+            init_attention_mask(
+                input_batch if input_batch is not None else tokens, eos_id=self.eos_id
+            )
 
         # passthrough for nonexistent layers, allows easy configuration of pipeline parallel stages
         h = self.tok_embeddings(tokens) if self.tok_embeddings else tokens

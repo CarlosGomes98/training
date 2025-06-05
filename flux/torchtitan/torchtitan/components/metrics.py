@@ -8,7 +8,7 @@ import os
 import time
 from collections import namedtuple
 from datetime import datetime
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -19,6 +19,10 @@ from torchtitan.distributed import ParallelDims
 from torchtitan.tools import utils
 from torchtitan.tools.logging import logger
 from torchtitan.tools.utils import Color, device_module, device_type
+
+if TYPE_CHECKING:
+    from torchtitan.protocols.train_spec import BaseModelArgs
+
 
 # named tuple for passing device memory stats for logging
 DeviceMemStats = namedtuple(
@@ -129,7 +133,7 @@ class TensorBoardLogger(BaseLogger):
 class WandBLogger(BaseLogger):
     """Logger implementation for Weights & Biases."""
 
-    def __init__(self, log_dir: str, tag: str | None = None):
+    def __init__(self, log_dir: str, job_config: JobConfig, tag: str | None = None):
         # Import wandb here to avoid startup import
         import wandb
 
@@ -142,6 +146,7 @@ class WandBLogger(BaseLogger):
         self.wandb.init(
             project=os.getenv("WANDB_PROJECT", "torchtitan"),
             dir=log_dir,
+            config=job_config.to_dict(),
         )
         logger.info("WandB logging enabled")
 
@@ -265,7 +270,7 @@ def _build_metric_logger(
     if metrics_config.enable_wandb:
         logger.debug("Attempting to create WandB logger")
         try:
-            return WandBLogger(base_log_dir, tag)
+            return WandBLogger(base_log_dir, job_config, tag)
         except Exception as e:
             if "No module named 'wandb'" in str(e):
                 logger.error(
@@ -338,10 +343,62 @@ class MetricsProcessor:
         self.num_flops_per_token = -1
         self.optimizers = None
         self.lr_schedulers = None
+        self.log_to_console = job_config.metrics.log_to_console
 
     def should_log(self, step: int) -> bool:
         return step == 1 or step % self.job_config.metrics.log_freq == 0
 
+    def val_log(
+        self,
+        step: int,
+        loss: float,
+        extra_metrics: dict[str, Any] | None = None,
+    ):
+
+        time_delta = time.perf_counter() - self.time_last_log
+
+        # tokens per second per device, abbreviated as tps
+        tps = self.ntokens_since_last_log / (
+            time_delta * self.parallel_dims.non_data_parallel_size
+        )
+
+        time_end_to_end = time_delta / self.job_config.metrics.log_freq
+
+        device_mem_stats = self.device_memory_monitor.get_peak_stats()
+
+        metrics = {
+            "val_loss_metrics/avg_loss": loss,
+            "val_throughput(tps)": tps,
+            "val_time_metrics/end_to_end(s)": time_end_to_end,
+            "val_memory/max_active(GiB)": device_mem_stats.max_active_gib,
+            "val_memory/max_active(%)": device_mem_stats.max_active_pct,
+            "val_memory/max_reserved(GiB)": device_mem_stats.max_reserved_gib,
+            "val_memory/max_reserved(%)": device_mem_stats.max_reserved_pct,
+            "val_memory/num_alloc_retries": device_mem_stats.num_alloc_retries,
+            "val_memory/num_ooms": device_mem_stats.num_ooms,
+        }
+
+
+        if extra_metrics:
+            metrics.update(extra_metrics)
+
+        self.logger.log(metrics, step)
+
+        color = self.color
+        if self.log_to_console:
+            logger.info(
+                f"{color.magenta}val: {step:2}  "
+                f"{color.green}val loss: {loss:7.4f}  "
+                f"{color.yellow}memory: {device_mem_stats.max_reserved_gib:5.2f}GiB"
+                f"({device_mem_stats.max_reserved_pct:.2f}%)  "
+                f"{color.blue}tps: {round(tps):,} {color.reset}"
+            )
+
+        self.ntokens_since_last_log = 0
+        self.data_loading_times.clear()
+        self.time_last_log = time.perf_counter()
+        self.device_memory_monitor.reset_peak_stats()
+    
     def log(
         self,
         step: int,
@@ -388,11 +445,12 @@ class MetricsProcessor:
 
         if extra_metrics:
             metrics.update(extra_metrics)
-
         self.logger.log(metrics, step)
 
         color = self.color
-        logger.info(
+        
+        if self.log_to_console:
+            logger.info(
             f"{color.red}step: {step:2}  "
             f"{color.green}loss: {global_avg_loss:7.4f}  "
             f"{color.yellow}memory: {device_mem_stats.max_reserved_gib:5.2f}GiB"
@@ -412,14 +470,18 @@ class MetricsProcessor:
 
 
 def build_metrics_processor(
-    job_config: JobConfig, parallel_dims: ParallelDims, tag: str | None = None
+    job_config: JobConfig,
+    parallel_dims: ParallelDims,
+    model_args: "BaseModelArgs | None" = None,
+    tag: str | None = None,
 ) -> MetricsProcessor:
     """Create a metrics processor.
 
     Args:
         job_config (JobConfig): Job configuration.
         parallel_dims (ParallelDims): Parallel dimensions.
-        tag (Optional[str]): Tag to use for TensorBoard or WandB. Defaults to None.
+        model_args (BaseModelArgs | None): Model-specific arguments. Defaults to None.
+        tag (str | None): Tag to use for TensorBoard or WandB. Defaults to None.
 
     Returns:
         MetricsProcessor: A metrics processor.
