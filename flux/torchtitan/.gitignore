@@ -1,0 +1,27 @@
+__pycache__
+.idea
+.DS_Store
+*.egg-info
+build
+outputs
+dist/*
+.vscode
+
+# data
+data
+out
+wandb
+*.tar
+
+torchtitan/datasets/**/*.model
+assets/**/*.model
+torchtitan/experiments/flux/assets/*
+
+# temp files
+*.log
+error.json
+_remote_module_non_scriptable.py
+.venv/
+
+# devcontainer
+.devcontainer

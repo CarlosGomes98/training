@@ -1,0 +1,11 @@
+.venv
+.git
+.gitignore
+.gitmodules
+.github
+.vscode
+autoencoder
+checkpoints
+clip_checkpoints
+img
+subset
