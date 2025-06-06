@@ -60,15 +60,22 @@ docker run -it --rm \
 Finally, download the autoencoder model from HuggingFace with your own access token:
 ```bash
 python torchtitan/experiments/flux/scripts/download_autoencoder.py --repo_id black-forest-labs/FLUX.1-schnell --ae_path ae.safetensors --hf_token <your_access_token>
+```
 
 ### Steps to run and time
-All steps below are assumed to be run inside the container
-``
+All steps below are assumed to be run inside the container. 
+
+The first time this is executed, checkpoints for the text encoders will automatically be downloaded from HF.
+To prevent this from happening every time, we encourage users to create a directory to be used as the HF cache and mount
+it to the container, as below.
+
+```
 docker run -it --rm \
 --gpus all --ipc=host --ulimit memlock=-1 \
 --ulimit stack=67108864 \
 --network=host --ipc=host \
 -v ~/.ssh:/root/.ssh \
+-v <desired huggingface cache directory>:/root/.cache
 -v <path to cc12m dataset>:/dataset/cc12m \
 -v <path to coco dataset>:/dataset/coco
 <tag> bash
@@ -100,6 +107,7 @@ We use the CC12M dataset available at https://huggingface.co/datasets/pixparse/c
 }
 ```
 We use the COCO2014 dataset for validation.
+
 ```
 @inproceedings{lin2014microsoft,
   title={Microsoft coco: Common objects in context},
@@ -139,19 +147,36 @@ In turn, the model code is largely based on the model open-sourced in [huggingfa
 ```
 
 ### List of layers 
-Brief summary of structure of model
-### Weight and bias initialization
-How are weights and biases initialized
+
+| **Component** | **Architecture** | **Parameters** | **Technical Details** |
+|---------------|------------------|----------------|----------------------|
+| **Text Encoders (Frozen)** | | | |
+| └ [VIT-L CLIP text encoder](https://huggingface.co/openai/clip-vit-large-patch14) | Transformer | ~123M | Max sequence length: 77 tokens |
+| | | | Output dimension: 768 |
+| └ [T5-XXL](https://huggingface.co/google/t5-v1_1-xxl) | Transformer | ~11B | Max sequence length: 256 tokens |
+| | |  | Output dimension: 4096 |
+| **Image Encoder (Frozen)** | | | |
+| └ [VAE (Variational AutoEncoder)](https://huggingface.co/black-forest-labs/FLUX.1-schnell) | CNN | ~84M | Downscaling factor: 8 (256→32) |
+| | | | Channel depth: 16 |
+| **Diffusion Transformer** | | | |
+| └ [Flux Diffusion Transformer](https://github.com/black-forest-labs/flux/) | Multimodal Diffusion Transformer (MMDiT) | ~11.9B |
+| | **Double Stream Blocks** | | **19 layers** |
+| | **Single Stream Blocks** | | **38 layers** |
+| | | | 24 attention heads per layer | 
+| | | | Hidden dimension: 3072 |
+| | | | MLP ratio: 4.0 | | Processes 64 input channels |
+
 ### Loss function
-Name/description of loss function used
+The MSE calculated over latents is used for the loss
 ### Optimizer
-Name of optimizer used
+AdamW
+
 # 5. Quality
 ### Quality metric
-What is the target quality metric
+Validation loss averaged over 8 equidistant time steps, as described in [Scaling Rectified Flow Transformers for High-Resolution Image Synthesis](https://arxiv.org/pdf/2403.03206)
 ### Quality target
-What is the numeric quality target
+TODO: tbd
 ### Evaluation frequency
-How many training items between quality evaluations (typically all, evaluated every epoch)
+TODO: tbd
 ### Evaluation thoroughness
-How many test items per quality evaluation (typically all)
+30,000 samples (the full validation dataset)
