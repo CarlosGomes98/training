@@ -423,7 +423,6 @@ def build_flux_val_dataloader(
         tokenizer=tokenizer,
         infinite=infinite,
         batch_size=job_config.eval.batch_size,
-        shuffle=False,
     )
 
 
@@ -438,7 +437,6 @@ def _build_flux_dataloader(
     infinite: bool = True,
     include_sample_id: bool = False,
     batch_size: int = 4,
-    shuffle: bool = True,
 ) -> ParallelAwareDataloader:
     """Build a data loader for HuggingFace datasets."""
     t5_tokenizer, clip_tokenizer = build_flux_tokenizer(job_config)
@@ -460,7 +458,6 @@ def _build_flux_dataloader(
         dp_rank=dp_rank,
         dp_world_size=dp_world_size,
         batch_size=batch_size,
-        shuffle=shuffle
     )
 
 

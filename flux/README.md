@@ -27,34 +27,40 @@ Without docker, follow the instructions to install torchtitan and additionally i
 ### Container setup
 To build the container:
 ```docker build -t <tag> -f Dockerfile .```
-To run the container:
+
+Before entering the container, create a directory for the autoencoder to be downloaded:
+
+```bash
+mkdir -p torchtitan/experiments/flux/assets/autoencoder
+```
+
 ```
 docker run -it --rm \
 --gpus all --ulimit memlock=-1 --ulimit stack=67108864 \
 --network=host --ipc=host \
 -v ~/.ssh:/root/.ssh \
+-v <desired huggingface cache directory>:/root/.cache \
 -v <path for dataset storage>:/dataset \
+-v ./torchtitan/experiments/flux/assets/autoencoder:/workspace/flux/torchtitan/experiments/flux/assets/autoencoder
 <tag> bash
 ```
 Note: it's recommended to map your .ssh folder to inside the container, so that it's easier for the code to set up remote cluster access.
 
 ### Steps to download and verify data
+For all steps below, they are assumed to run inside the container
 
 #### CC12M dataset
+Depending on your bandwidth and CPU, you may find increasing `num_proc` accelerates this download.
+```bash
+python -c "from datasets import load_dataset; load_dataset('pixparse/cc12m-wds', split='train', num_proc=8).save_to_disk('/dataset/cc12m')"
 ```
-docker run -it --rm \
---network=host --ipc=host \
--v ~/.ssh:/root/.ssh \
--v <path for dataset storage>:/dataset \
-<tag> python -c "from datasets import load_dataset; load_dataset('pixparse/cc12m-wds', split='train', num_proc=8).save_to_disk('/dataset/cc12m')"
-```
+(Optional) Remove the cache used by hf to reclaim space: `rm -r /root/.cache/huggingface/datasets/pixparse___cc12m-wds`
 
 #### COCO-2014 subset
-1. Run the container
-2. download coco-2014 validation dataset: `DOWNLOAD_PATH=/dataset/coco2014 bash torchtitan/experiments/flux/scripts/coco-2014-validation-download.sh`
-3. create the validation subset, and resize the images to 256x256: `bash torchtitan/experiments/flux/scripts/coco-2014-validation-split-resize.sh --input-images-path /dataset/coco2014/val2014 --input-coco-captions /dataset/coco2014/annotations/captions_val2014.json --output-images-path /dataset/coco2014/val2014_256x256_30k --output-tsv-file /dataset/coco2014/val2014_30k.tsv`
-4. Prepare the data in hf format: `python -c "from datasets import load_dataset; load_dataset('/dataset/coco2014/val2014_256x256_30k', split='validation', num_proc=8).save_to_disk('/dataset/coco', max_shard_size='0.5GB')"`
-5. (Optional) remove the unprocessed dataset to reclaim space: `rm -r /dataset/coco2014`
+1. download coco-2014 validation dataset: `DOWNLOAD_PATH=/dataset/coco2014 bash torchtitan/experiments/flux/scripts/coco-2014-validation-download.sh`
+2. create the validation subset, and resize the images to 256x256: `bash torchtitan/experiments/flux/scripts/coco-2014-validation-split-resize.sh --input-images-path /dataset/coco2014/val2014 --input-coco-captions /dataset/coco2014/annotations/captions_val2014.json --output-images-path /dataset/coco2014/val2014_256x256_30k --output-tsv-file /dataset/coco2014/val2014_30k.tsv`
+3. prepare the data in hf format: `python -c "from datasets import load_dataset; load_dataset('/dataset/coco2014/val2014_256x256_30k', split='validation', num_proc=8).save_to_disk('/dataset/coco', max_shard_size='500MB')"`
+4. (optional) remove the unprocessed dataset to reclaim space: `rm -r /dataset/coco2014`
 
 #### Download the autoencoder
 Finally, download the autoencoder model from HuggingFace with your own access token:
@@ -75,18 +81,21 @@ docker run -it --rm \
 --ulimit stack=67108864 \
 --network=host --ipc=host \
 -v ~/.ssh:/root/.ssh \
--v <desired huggingface cache directory>:/root/.cache
--v <path to cc12m dataset>:/dataset/cc12m \
--v <path to coco dataset>:/dataset/coco
+-v <desired huggingface cache directory>:/root/.cache \
+-v <path for dataset storage>/cc12m:/dataset/cc12m_disk \
+-v <path for dataset storage>/coco:/dataset/coco
+-v ./torchtitan/experiments/flux/assets/autoencoder:/workspace/flux/torchtitan/experiments/flux/assets/autoencoder
 <tag> bash
 ```
 
 #### Basic run
-`CONFIG=torchtitan/experiments/flux/train_configs/flux_schnell_model.toml NGPU=1 bash torchtitan/experiments/flux/run_train.sh --training.dataset=cc12m_wds_disk --eval.dataset=coco`.
+`CONFIG=torchtitan/experiments/flux/train_configs/flux_schnell_model.toml NGPU=<number of GPUs> bash torchtitan/experiments/flux/run_train.sh --training.dataset=cc12m-wds-disk --eval.dataset=coco --training.batch_size=1`
+
+If you run out of memory, you can try the simpler debug_model using `CONFIG=torchtitan/experiments/flux/train_configs/debug_model.toml`. 
 
 #### Longer run
 **For longer runs, we expect a system with a slurm-based cluster.**
-```source torchtitan/experiments/flux/configs/config_08x08x16.sh; export CONT=<tag>; export DATAROOT=<path_to_dataroot> sbatch -N <number of nodes> -t <time> run.sub $PARAMS```
+```source torchtitan/experiments/flux/configs/config_08x08x16_cc12m.sh; export CONT=<tag>; export DATAROOT=<path for dataset storage> sbatch -N <number of nodes> -t <time> run.sub $PARAMS```
 
 `DATAROOT` should be set to the path where data resides. e.g. `${DATAROOT}/cc12m_disk` should point to the CC12M training dataset.
 
@@ -130,7 +139,7 @@ However, our benchmark uses only a subset of 30,000 images and annotations chose
 ### Training data order
 The data is read in the same deterministic order each time.
 ### Test data order
-The data is randomly shuffled at each epoch. However, a random seed is fixed, making this deterministic.
+The data is read in the same deterministic order each time.
 
 # 4. Model
 ### Publication/Attribution

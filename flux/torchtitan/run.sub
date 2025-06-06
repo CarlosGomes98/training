@@ -41,17 +41,15 @@ fi
 DATASET=${DATASET:-laion_pre_transformed}
 VAL_DATASET=${VAL_DATASET:-coco_pre_transformed}
 
-# defaults for some common datasets
-if [[ ${DATASET} == "laion_pre_transformed" ]]; then
-    DATASET_PATH=${DATASET_PATH:-"laion-400m/hf_dataset"}
-elif [[ ${DATASET} == "cc12m-wds-disk" ]]; then
-    DATASET_PATH=${DATASET_PATH:-"cc12m-wds-disk"}
+
+if [[ ${DATASET} == "cc12m-wds-disk" ]]; then
+    DATASET_PATH=${DATASET_PATH:-"cc12m_disk"}
 else
     DATASET_PATH=""
 fi
 
 if [[ ${VAL_DATASET} == "coco_pre_transformed" ]]; then
-    VAL_DATASET_PATH=${VAL_DATASET_PATH:-"coco2014/hf_dataset"}
+    VAL_DATASET_PATH=${VAL_DATASET_PATH:-"coco"}
 else
     VAL_DATASET_PATH=""
 fi
@@ -100,11 +98,11 @@ export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 # adjust sbatch --ntasks and sbatch --nodes above and --nnodes below
 # to your specific node count, and update target launch file.
 srun --ntasks-per-node=1 --output=${LOGDIR}/slurm-%j.out --container-image=${CONT} \
---container-mounts="${MOUNT_CURRENT_DIR_FLAG}./torchtitan/experiments/flux/assets/autoencoder:/autoencoder,${DATAROOT}:/dataset,${LOGDIR}:/logdir,./hf_cache:/root/.cache" \
+--container-mounts="${MOUNT_CURRENT_DIR_FLAG},${DATAROOT}:/dataset,${LOGDIR}:/logdir,./hf_cache:/root/.cache" \
 torchrun --nnodes ${#nodes[@]} --nproc_per_node ${NGPU} --rdzv_id 101 --rdzv_backend c10d --rdzv_endpoint "$head_node_ip:29500" --local-ranks-filter ${LOG_RANK} \
 --role rank --tee 3 -m torchtitan.experiments.flux.train --job.config_file ${CONFIG_FILE} ${TB_FLAG} ${CKPT_FLAG} --job.dump_folder=/logdir \
 --parallelism.data_parallel_replicate_degree=${#nodes[@]} --parallelism.data_parallel_shard_degree=${NGPU} \
 --training.dataset=${DATASET} --training.dataset_path=/dataset/${DATASET_PATH} --eval.dataset=${VAL_DATASET} --eval.dataset_path=/dataset/${VAL_DATASET_PATH} \
---encoder.autoencoder_path=/autoencoder/ae.safetensors \
+--encoder.autoencoder_path=/dataset/autoencoder/ae.safetensors \
 --training.batch_size=32 --eval.batch_size=32 --eval.eval_freq=100 --eval.save_img_folder="img"  --metrics.log_freq=10 \
 $overrides

@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11-distutils \
     python3-pip \
     git \
+    unzip \
+    wget \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
