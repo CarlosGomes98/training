@@ -28,10 +28,11 @@ Without docker, follow the instructions to install torchtitan and additionally i
 To build the container:
 ```docker build -t <tag> -f Dockerfile .```
 
-Before entering the container, create a directory for the autoencoder to be downloaded:
+Before entering the container, create a directory for the autoencoder to be downloaded, and a directory to be used as huggingface cache:
 
 ```bash
 mkdir -p torchtitan/experiments/flux/assets/autoencoder
+mkdir hf_cache
 ```
 
 ```
@@ -39,7 +40,7 @@ docker run -it --rm \
 --gpus all --ulimit memlock=-1 --ulimit stack=67108864 \
 --network=host --ipc=host \
 -v ~/.ssh:/root/.ssh \
--v <desired huggingface cache directory>:/root/.cache \
+-v hf_cache:/root/.cache \
 -v <path for dataset storage>:/dataset \
 -v ./torchtitan/experiments/flux/assets/autoencoder:/workspace/flux/torchtitan/experiments/flux/assets/autoencoder
 <tag> bash
@@ -81,7 +82,7 @@ docker run -it --rm \
 --ulimit stack=67108864 \
 --network=host --ipc=host \
 -v ~/.ssh:/root/.ssh \
--v <desired huggingface cache directory>:/root/.cache \
+-v hf_cache:/root/.cache \
 -v <path for dataset storage>/cc12m:/dataset/cc12m_disk \
 -v <path for dataset storage>/coco:/dataset/coco
 -v ./torchtitan/experiments/flux/assets/autoencoder:/workspace/flux/torchtitan/experiments/flux/assets/autoencoder
@@ -95,7 +96,9 @@ If you run out of memory, you can try the simpler debug_model using `CONFIG=torc
 
 #### Longer run
 **For longer runs, we expect a system with a slurm-based cluster.**
-```source torchtitan/experiments/flux/configs/config_08x08x16_cc12m.sh; export CONT=<tag>; export DATAROOT=<path for dataset storage> sbatch -N <number of nodes> -t <time> run.sub $PARAMS```
+```bash
+source torchtitan/experiments/flux/configs/config_08x08x16_cc12m.sh; export CONT=<tag>; export DATAROOT=<path for dataset storage>; sbatch -N <number of nodes> -t <time> run.sub $PARAMS
+```
 
 `DATAROOT` should be set to the path where data resides. e.g. `${DATAROOT}/cc12m_disk` should point to the CC12M training dataset.
 
