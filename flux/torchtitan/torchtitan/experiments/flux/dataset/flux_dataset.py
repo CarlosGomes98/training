@@ -395,7 +395,7 @@ def build_flux_val_dataloader(
     tokenizer: FluxTokenizer | None,
     infinite: bool = False,
 ) -> ParallelAwareDataloader:
-    if job_config.eval.dataset_path is None:
+    if job_config.eval.dataset is None:
         return None 
     return _build_flux_dataloader(
         dataset_name=job_config.eval.dataset,

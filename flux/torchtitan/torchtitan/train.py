@@ -236,7 +236,7 @@ class FluxTrainer(Trainer):
         Returns: Average loss per timestep across all samples in the batch.
         """
         input_dict["image"] = labels
-        input_dict = self.preprocess_fn(
+        input_dict = preprocess_data(
             device=self.device,
             dtype=self._dtype,
             autoencoder=self.autoencoder,
@@ -353,7 +353,8 @@ class FluxTrainer(Trainer):
                 self.autoencoder,
                 self.job_config.training.img_size,
                 self.step,
-                save_img_folder=os.path.join(self.job_config.job.dump_folder, self.job_config.eval.save_img_folder)
+                save_img_folder=os.path.join(self.job_config.job.dump_folder, self.job_config.eval.save_img_folder),
+                dtype=self._dtype
                 )
 
         # In the future, we could return avg_loss_per_timestep for more detailed reporting
