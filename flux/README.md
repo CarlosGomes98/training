@@ -182,6 +182,9 @@ In turn, the model code is largely based on the model open-sourced in [huggingfa
 The MSE calculated over latents is used for the loss
 ### Optimizer
 AdamW
+### Precision
+Without FSDP enabled, only FP32 is supported. With FSDP enabled, the default becomes BF16. This can be changed using `--training.mixed_precision_param=float32`.
+
 
 # 5. Quality
 ### Quality metric

@@ -272,23 +272,6 @@ class FluxDataset(IterableDataset, Stateful):
             self._t5_empty_encoding = torch.tensor(empty_encodings["t5_encodings"])
             self._clip_empty_encoding = torch.tensor(empty_encodings["clip_encodings"])
 
-            # Load autoencoder if job_config is provided and we're using a preprocessed dataset
-            try:
-                logger.info(
-                    f"Loading autoencoder from {job_config.encoder.autoencoder_path}"
-                )
-                model_config = job_config.train_spec.config[job_config.model.flavor]
-                self.autoencoder = load_ae(
-                    job_config.encoder.autoencoder_path,
-                    model_config.autoencoder_params,
-                    device="cuda" if torch.cuda.is_available() else "cpu",
-                    dtype=torch.float32,
-                )
-                logger.info("Autoencoder loaded successfully")
-            except Exception as e:
-                logger.warning(f"Failed to load autoencoder: {e}")
-                self.autoencoder = None
-
         self._data = split_dataset_by_node(ds, dp_rank, dp_world_size)
 
         self._t5_tokenizer = t5_tokenizer

@@ -33,7 +33,7 @@ fi
 
 ENABLE_CHECKPOINTING=${ENABLE_CHECKPOINTING:-True}
 if [[ ${ENABLE_CHECKPOINTING} = True ]]; then
-    CKPT_FLAG="--checkpoint.enable_checkpoint --checkpoint.folder=checkpoint --checkpoint.interval=${CHECKPOINT_FREQ:-100} --checkpoint.export_dtype=bfloat16"
+    CKPT_FLAG="--checkpoint.enable_checkpoint --checkpoint.folder=checkpoint --checkpoint.interval=${CHECKPOINT_FREQ:-100}"
 else
     CKPT_FLAG=""
 fi
