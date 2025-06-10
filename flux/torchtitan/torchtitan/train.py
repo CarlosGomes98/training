@@ -400,7 +400,7 @@ class FluxTrainer(Trainer):
 
                 if (
                     self.step % job_config.eval.eval_freq == 0
-                    and self.val_dataloader
+                    and self.val_dataloader is not None
                 ):
                     eval_loss = self.eval()
                 
