@@ -44,7 +44,7 @@ The run requires the following artifacts:
 To download the training and validation JSONL files using the HuggingFace CLI:
 
 ```bash
-; hf download hfilaretov/Benchmark-R2E-Gym-Easy --repo-type dataset --local-dir hfilaretov__Benchmark-R2E-Gym-Easy
+; uvx hf download hfilaretov/Benchmark-R2E-Gym-Easy --repo-type dataset --local-dir hfilaretov__Benchmark-R2E-Gym-Easy
 ...
 
 ; tree hfilaretov__Benchmark-R2E-Gym-Easy
@@ -75,7 +75,7 @@ pip install huggingface_hub
 
 export HF_CKPT_PATH=$(pwd)/hf/Qwen/Qwen3-235B-A22B-Instruct-2507
 mkdir -p "$HF_CKPT_PATH"
-HF_TOKEN=<your hf token> hf download Qwen/Qwen3-235B-A22B-Instruct-2507 --local-dir "$HF_CKPT_PATH"
+HF_TOKEN=<your hf token> uvx hf download Qwen/Qwen3-235B-A22B-Instruct-2507 --local-dir "$HF_CKPT_PATH"
 ```
 
 The launcher also creates and mounts a host Hugging Face cache. Set `HF_HOME` before launch if you want to use a cache outside `$(pwd)/.cache`.
@@ -134,7 +134,7 @@ To build the JSONL files, please run:
 ```bash
 # Optional token
 export HF_TOKEN=<read-token>
-hf download R2E-Gym/R2E-Gym-Subset --repo-type dataset --local-dir tmp/R2E-Gym__R2E-Gym-Subset
+uvx hf download R2E-Gym/R2E-Gym-Subset --repo-type dataset --local-dir tmp/R2E-Gym__R2E-Gym-Subset
 uv run --with pyarrow python RL/tools/create_r2e_gym_easy_subset_jsonl.py \
   --dataset-dir tmp/R2E-Gym__R2E-Gym-Subset \
   --output-dir outputs/data/ \
